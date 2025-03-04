@@ -1,0 +1,61 @@
+name: Deploy OCI Function - GPT version
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Lista de ambientes separados por vírgula (ex: dev,dev1)'
+        required: true
+
+jobs:
+  split-environments:
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.set-environments.outputs.environments }}
+    steps:
+      - name: Quebrar ambientes em JSON
+        id: set-environments
+        run: |
+          ENVIRONMENTS=(${INPUT_ENVIRONMENT//,/ })
+          JSON="["
+
+          for ENV in "${ENVIRONMENTS[@]}"; do
+            JSON+="\"$ENV\","
+          done
+
+          JSON="${JSON%,}]"
+
+          echo "environments=$JSON" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+
+  define-matrix:
+    needs: split-environments
+    strategy:
+      matrix:
+        environment: ${{ fromJson(needs.split-environments.outputs.environments) }}
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }} # Cada job recebe um environment separado
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Definir matriz de deploy
+        id: set-matrix
+        run: |
+          ENVIRONMENT="${{ matrix.environment }}"
+          OCI_CLI_REGION="${{ secrets.oci_cli_region }}"
+
+          MATRIX_JSON="[{\"environment\": \"$ENVIRONMENT\", \"region\": \"$OCI_CLI_REGION\"}]"
+
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: define-matrix
+    strategy:
+      matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Deploy na OCI
+        run: |
+          echo "Deploying to environment: ${{ matrix.environment }} in region: ${{ matrix.region }}"

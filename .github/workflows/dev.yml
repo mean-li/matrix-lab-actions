@@ -1,4 +1,4 @@
-name: Deploy OCI Functions
+name: Deploy OCI Functions - Claude version
 
 on:
   workflow_dispatch:

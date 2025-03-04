@@ -1,4 +1,4 @@
-name: Deploy OCI Function
+name: Deploy OCI Function - Deepseek version
 
 on:
   workflow_dispatch:
