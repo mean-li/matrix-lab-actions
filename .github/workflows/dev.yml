@@ -1,0 +1,82 @@
+name: Deploy OCI Functions
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Lista de ambientes separados por vírgula (ex: dev,dev1)'
+
+jobs:
+  # Job para enumerar os ambientes a serem utilizados
+  enumerate-environments:
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.parse-environments.outputs.environments }}
+    steps:
+      - name: Parse environments
+        id: parse-environments
+        run: |
+          ENVIRONMENTS='${{ inputs.environment }}'
+          # Converte a lista separada por vírgulas em um array JSON
+          ENVIRONMENTS_JSON=$(echo $ENVIRONMENTS | jq -R 'split(",")')
+          echo "environments=$ENVIRONMENTS_JSON" >> $GITHUB_OUTPUT
+
+  # Job para obter as regiões de cada ambiente
+  get-regions:
+    needs: enumerate-environments
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(needs.enumerate-environments.outputs.environments) }}
+    environment: ${{ matrix.environment }}
+    outputs:
+      region_mapping: ${{ steps.collect-regions.outputs.region_mapping }}
+    steps:
+      - name: Get region for environment
+        id: get-region
+        run: |
+          echo "region=${{ secrets.OCI_CLI_REGION }}" >> $GITHUB_OUTPUT
+
+      # Este passo é executado em todos os ambientes para coletar as regiões
+      - name: Collect regions
+        id: collect-regions
+        run: |
+          echo "region_mapping={\"environment\":\"${{ matrix.environment }}\",\"region\":\"${{ steps.get-region.outputs.region }}\"}" >> $GITHUB_OUTPUT
+
+  # Job para construir a matriz de deploy
+  define-matrix:
+    needs: get-regions
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      first: ${{ steps.set-matrix.outputs.first }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # Construir a matriz a partir do mapeamento de regiões
+          MATRIX_JSON=$(echo '${{ toJSON(needs.get-regions.outputs.region_mapping) }}' | jq -s '.')
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+          # Obter o primeiro ambiente para outras operações
+          FIRST_ENV=$(echo "$MATRIX_JSON" | jq -r '.[0].environment')
+          echo "first=$FIRST_ENV" >> $GITHUB_OUTPUT
+
+  # Job de deploy que usa a matriz
+  deploy:
+    needs: define-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.define-matrix.outputs.matrix) }}
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Deploy to OCI
+        run: |
+          echo "Deploying to environment ${{ matrix.environment }} in region ${{ matrix.region }}"
+          # Seu código de deploy aqui
+        env:
+          OCI_CLI_REGION: ${{ matrix.region }}
+          # Outros secrets necessários para o deploy
