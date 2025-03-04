@@ -1,0 +1,51 @@
+name: Deploy OCI Function
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environments (e.g., dev,dev1)'
+        required: true
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      first: ${{ steps.set-matrix.outputs.first }}
+    steps:
+      - name: Definir matriz de deploy
+        id: set-matrix
+        run: |
+          ENVIRONMENTS=(${INPUT_ENVIRONMENT//,/ })
+          REGIONS=(${OCI_CLI_REGION//,/ })
+          MATRIX_JSON="["
+
+          for i in "${!ENVIRONMENTS[@]}"; do
+            MATRIX_JSON+="{\"environment\": \"${ENVIRONMENTS[$i]}\", \"region\": \"${REGIONS[$i]}\"},"
+          done
+
+          MATRIX_JSON="${MATRIX_JSON%,}]"
+
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "first=${ENVIRONMENTS[0]}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          OCI_CLI_REGION: ${{ secrets.oci_cli_region }}
+
+  deploy:
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Deploy OCI Function
+        run: |
+          echo "Deploying to region ${{ matrix.region }} in environment ${{ matrix.environment }}"
+          # Add your deployment commands here
+        env:
+          OCI_CLI_REGION: ${{ matrix.region }}
